@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Eco Workspace
+Comment=Native Linux terminal manager with custom splits and recording
+Exec=/home/shihab/Desktop/EchoWorkspace/eco_workspace.py
+Icon=eco_workspace
+Terminal=false
+Type=Application
+Categories=Development;System;TerminalEmulator;
+Keywords=terminal;pty;split;workspace;record;eco;
+StartupNotify=true
