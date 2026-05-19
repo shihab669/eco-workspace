@@ -52,8 +52,12 @@ class TerminalPane:
         self.terminal.set_cursor_blink_mode(Vte.CursorBlinkMode.ON)
         self.terminal.set_cursor_shape(Vte.CursorShape.BLOCK)
         self.terminal.set_mouse_autohide(True)
+        self.terminal.set_allow_hyperlink(True)
         
         self.setup_terminal_colors()
+
+        self.url_match_tags = []
+        self.register_url_matches()
         
         font_desc = Pango.FontDescription("Ubuntu Mono 11")
         self.terminal.set_font(font_desc)
@@ -62,6 +66,7 @@ class TerminalPane:
         self.terminal.connect("window-title-changed", self.on_title_changed)
         self.terminal.connect("commit", self.on_commit)
         self.terminal.connect("focus-in-event", self.on_focus_in)
+        self.terminal.connect("button-press-event", self.on_button_press)
         
         self.widget.pack_start(self.terminal, True, True, 0)
         
@@ -86,6 +91,17 @@ class TerminalPane:
             palette.append(rgba)
             
         self.terminal.set_colors(fg, bg, palette)
+
+    def register_url_matches(self):
+        patterns = [
+            r"https?://[^\s<>()\[\]{}\"]+",
+            r"www\.[^\s<>()\[\]{}\"]+",
+        ]
+
+        for pattern in patterns:
+            regex = Vte.Regex.new_for_match(pattern, len(pattern), 0)
+            tag = self.terminal.match_add_regex(regex, 0)
+            self.url_match_tags.append(tag)
         
     def spawn_shell(self):
         shell = os.environ.get("SHELL", "/bin/bash")
@@ -118,6 +134,36 @@ class TerminalPane:
         
     def on_focus_in(self, widget, event):
         self.app.set_active_terminal(self)
+        return False
+
+    def on_button_press(self, terminal, event):
+        if event.button == 3:
+            if terminal.get_has_selection():
+                menu = Gtk.Menu()
+                copy_item = Gtk.MenuItem(label="Copy")
+                copy_item.connect("activate", lambda item: terminal.copy_clipboard())
+                menu.append(copy_item)
+                menu.show_all()
+                menu.popup(None, None, None, None, event.button, event.time)
+                return True
+            return False
+
+        if event.button == 1 and (event.state & Gdk.ModifierType.CONTROL_MASK):
+            uri = terminal.hyperlink_check_event(event)
+            if not uri:
+                match_result = terminal.match_check_event(event)
+                if match_result:
+                    uri = match_result[0] if isinstance(match_result, tuple) else match_result
+
+            if uri:
+                if uri.startswith("www."):
+                    uri = f"https://{uri}"
+                try:
+                    Gio.AppInfo.launch_default_for_uri(uri, None)
+                except Exception as exc:
+                    print(f"Failed to open link {uri}: {exc}")
+                return True
+
         return False
         
     def set_focused_style(self, focused):
