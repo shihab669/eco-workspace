@@ -16,6 +16,7 @@ class TerminalPane:
     def __init__(self, workspace, app):
         self.workspace = workspace
         self.app = app
+        self.is_busy = False # Track if the terminal has already executed a command
         
         # Main layout box for this pane
         self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -70,6 +71,7 @@ class TerminalPane:
         # Event bindings
         self.terminal.connect("child-exited", self.on_child_exited)
         self.terminal.connect("window-title-changed", self.on_title_changed)
+        self.terminal.connect("commit", self.on_commit)
         
         # Focus events to track active terminal highlighting
         self.terminal.connect("focus-in-event", self.on_focus_in)
@@ -123,6 +125,9 @@ class TerminalPane:
         
     def on_title_changed(self, terminal):
         self.app.refresh_sidebar()
+
+    def on_commit(self, terminal, text, size):
+        self.is_busy = True # Set busy if user types text manually in terminal
         
     def on_focus_in(self, widget, event):
         self.app.set_active_terminal(self)
@@ -317,9 +322,15 @@ class EcoWorkspaceApp(Gtk.Window):
     def on_tool_btn_clicked(self, button, tool_command):
         if self.active_workspace and self.active_workspace.active_pane:
             pane = self.active_workspace.active_pane
+            
+            # If the current terminal is already executing a tool or has user input, automatically split it
+            if pane.is_busy:
+                pane = self.split_terminal(pane, Gtk.Orientation.VERTICAL)
+                
             # Feed the command and append a newline to auto-execute it inside active shell/tool
             cmd = f"{tool_command}\n"
             pane.terminal.feed_child(cmd.encode('utf-8'))
+            pane.is_busy = True
             
     def add_workspace(self, name):
         ws = Workspace(name, self)
@@ -444,6 +455,8 @@ class EcoWorkspaceApp(Gtk.Window):
         self.update_terminal_focus_borders()
         new_pane.terminal.grab_focus()
         self.refresh_sidebar()
+        
+        return new_pane
         
     def close_terminal(self, pane):
         ws = pane.workspace
