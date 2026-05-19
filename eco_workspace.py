@@ -245,7 +245,7 @@ class EcoWorkspaceApp(Gtk.Window):
         
         for root, dirs, files in os.walk(self.workspace_dir):
             depth = root[len(self.workspace_dir):].count(os.sep)
-            if depth > 3:
+            if depth > 10:
                 dirs[:] = []
                 continue
                 
@@ -378,10 +378,41 @@ class EcoWorkspaceApp(Gtk.Window):
         self.add_ws_btn.connect("clicked", lambda w: self.add_workspace(f"Workspace {len(self.workspaces) + 1}"))
         self.sidebar_box.pack_start(self.add_ws_btn, False, False, 4)
         
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(150)
+        self.content_paned.pack2(self.stack, resize=True, shrink=False)
+        
         self.notebook = Gtk.Notebook()
         self.notebook.set_show_tabs(False)
         self.notebook.set_show_border(False)
-        self.content_paned.pack2(self.notebook, resize=True, shrink=False)
+        self.stack.add_named(self.notebook, "workspaces")
+        
+        self.empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        self.empty_box.set_halign(Gtk.Align.CENTER)
+        self.empty_box.set_valign(Gtk.Align.CENTER)
+        self.empty_box.get_style_context().add_class("empty-state")
+        
+        empty_icon = Gtk.Label(label="🗄")
+        empty_icon.get_style_context().add_class("empty-icon")
+        self.empty_box.pack_start(empty_icon, False, False, 0)
+        
+        empty_title = Gtk.Label(label="No Active Workspaces")
+        empty_title.get_style_context().add_class("empty-title")
+        self.empty_box.pack_start(empty_title, False, False, 0)
+        
+        empty_subtitle = Gtk.Label(label="Sprout a new workspace to start running tools and terminal utilities.")
+        empty_subtitle.get_style_context().add_class("empty-subtitle")
+        self.empty_box.pack_start(empty_subtitle, False, False, 0)
+        
+        empty_btn = Gtk.Button(label="+ New Workspace")
+        empty_btn.get_style_context().add_class("add-workspace-btn")
+        empty_btn.connect("clicked", lambda w: self.add_workspace(f"Workspace {len(self.workspaces) + 1}"))
+        self.empty_box.pack_start(empty_btn, False, False, 12)
+        
+        self.stack.add_named(self.empty_box, "empty")
+        
+        self.stack.set_visible_child_name("empty")
         
         self.connect("key-press-event", self.on_key_pressed)
         
@@ -455,13 +486,13 @@ class EcoWorkspaceApp(Gtk.Window):
         
         self.workspace_listbox.select_row(row)
         ws.active_pane.terminal.grab_focus()
+        
+        self.stack.set_visible_child_name("workspaces")
+        
         self.update_server_buttons()
         self.refresh_sidebar()
         
     def remove_workspace(self, ws):
-        if len(self.workspaces) <= 1:
-            return
-            
         ws_idx = self.workspaces.index(ws)
         
         for row in self.workspace_listbox.get_children():
@@ -474,6 +505,13 @@ class EcoWorkspaceApp(Gtk.Window):
         
         for i, remaining_ws in enumerate(self.workspaces):
             remaining_ws.page_index = i
+            
+        if len(self.workspaces) == 0:
+            self.active_workspace = None
+            self.stack.set_visible_child_name("empty")
+            self.update_server_buttons()
+            self.refresh_sidebar()
+            return
             
         new_selection_idx = max(0, ws_idx - 1)
         row_to_select = self.workspace_listbox.get_children()[new_selection_idx]

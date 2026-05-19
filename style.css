@@ -166,3 +166,26 @@ scrollbar slider {
 scrollbar slider:hover {
     background-color: #27272a;
 }
+
+.empty-state {
+    padding: 40px;
+}
+
+.empty-icon {
+    font-size: 56pt;
+    color: #3f3f46;
+}
+
+.empty-title {
+    font-family: "Outfit", "Inter", sans-serif;
+    font-size: 16pt;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.empty-subtitle {
+    font-family: "Outfit", "Inter", sans-serif;
+    font-size: 10pt;
+    color: #71717a;
+    margin-bottom: 8px;
+}
