@@ -162,6 +162,10 @@ class EcoWorkspaceApp(Gtk.Window):
         self.workspace_dir = None
         self.init_workspace_directory()
         
+        self.frontend_path = None
+        self.backend_path = None
+        self.find_project_directories()
+        
         self.workspaces = []
         self.active_workspace = None
         
@@ -212,6 +216,81 @@ class EcoWorkspaceApp(Gtk.Window):
             
         dialog.destroy()
         return folder
+
+    def find_project_directories(self):
+        if not self.workspace_dir or not os.path.isdir(self.workspace_dir):
+            return
+            
+        candidate_paths = []
+        exclude_dirs = {
+            'node_modules', '.git', '.next', '.venv', 'venv', 'env', 
+            'dist', 'build', 'out', 'target', '.idea', '.vscode'
+        }
+        
+        for root, dirs, files in os.walk(self.workspace_dir):
+            depth = root[len(self.workspace_dir):].count(os.sep)
+            if depth > 3:
+                dirs[:] = []
+                continue
+                
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
+            has_package_json = 'package.json' in files
+            has_py_backend = any(f in files for f in ['requirements.txt', 'manage.py', 'pipfile', 'pyproject.toml'])
+            has_go = 'go.mod' in files
+            has_rust = 'Cargo.toml' in files
+            has_java = 'pom.xml' in files or 'build.gradle' in files
+            
+            if has_package_json or has_py_backend or has_go or has_rust or has_java:
+                candidate_paths.append((os.path.abspath(root), files))
+                
+        for path, files in candidate_paths:
+            name = os.path.basename(path).lower()
+            is_fe = False
+            if any(k in name for k in ['frontend', 'client', 'web', 'ui', 'react', 'next', 'vite', 'nuxt']):
+                is_fe = True
+            elif any(f.startswith(('vite.config', 'next.config', 'nuxt.config', 'svelte.config')) for f in files):
+                is_fe = True
+            elif 'package.json' in files:
+                pj_path = os.path.join(path, 'package.json')
+                try:
+                    with open(pj_path, 'r', encoding='utf-8') as f:
+                        content = f.read().lower()
+                        if any(k in content for k in ['react', 'vue', 'svelte', 'next', 'vite', 'nuxt', 'tailwindcss', 'expo', 'bootstrap']):
+                            is_fe = True
+                except:
+                    pass
+            
+            if is_fe and 'package.json' in files:
+                self.frontend_path = path
+                break
+                
+        if not self.frontend_path:
+            root_pj = os.path.join(self.workspace_dir, 'package.json')
+            if os.path.exists(root_pj):
+                self.frontend_path = self.workspace_dir
+                
+        for path, files in candidate_paths:
+            if path == self.frontend_path:
+                continue
+            name = os.path.basename(path).lower()
+            is_be = False
+            if any(k in name for k in ['backend', 'server', 'api', 'app']):
+                is_be = True
+            elif any(f in files for f in ['requirements.txt', 'manage.py', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle']):
+                is_be = True
+            elif any(f in files for f in ['server.js', 'app.js', 'index.js']):
+                is_be = True
+                
+            if is_be:
+                self.backend_path = path
+                break
+                
+        if not self.backend_path:
+            for path, files in candidate_paths:
+                if path != self.frontend_path:
+                    self.backend_path = path
+                    break
 
     def build_ui(self):
         self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -297,7 +376,13 @@ class EcoWorkspaceApp(Gtk.Window):
             if pane.is_busy:
                 pane = self.split_terminal(pane, Gtk.Orientation.HORIZONTAL)
                 
-            cmd = f"{tool_command}\n"
+            if button == self.frontend_btn:
+                cmd = f"cd \"{self.frontend_path}\" && npm run dev\n"
+            elif button == self.backend_btn:
+                cmd = f"cd \"{self.backend_path}\" && npm start\n"
+            else:
+                cmd = f"{tool_command}\n"
+                
             pane.terminal.feed_child(cmd.encode('utf-8'))
             pane.is_busy = True
             self.update_server_buttons()
@@ -312,10 +397,13 @@ class EcoWorkspaceApp(Gtk.Window):
             
         any_busy = any(pane.is_busy for pane in self.active_workspace.panes)
         is_free = not any_busy
-        self.frontend_btn.set_sensitive(is_free)
-        self.frontend_btn.set_visible(is_free)
-        self.backend_btn.set_sensitive(is_free)
-        self.backend_btn.set_visible(is_free)
+        has_fe = self.frontend_path is not None and os.path.isdir(self.frontend_path)
+        has_be = self.backend_path is not None and os.path.isdir(self.backend_path)
+        
+        self.frontend_btn.set_sensitive(is_free and has_fe)
+        self.frontend_btn.set_visible(is_free and has_fe)
+        self.backend_btn.set_sensitive(is_free and has_be)
+        self.backend_btn.set_visible(is_free and has_be)
 
     def add_workspace(self, name):
         ws = Workspace(name, self)
