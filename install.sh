@@ -15,7 +15,7 @@ cp /home/shihab/Desktop/EchoWorkspace/assets/logo.png "$HOME/.local/share/icons/
 echo "Installing echowork CLI command..."
 cat > "$HOME/.local/bin/echowork" <<'EOF'
 #!/usr/bin/env bash
-exec /home/shihab/Desktop/EchoWorkspace/eco_workspace.py "$@"
+exec /usr/bin/python3 /home/shihab/Desktop/EchoWorkspace/eco_workspace.py "$@"
 EOF
 chmod +x "$HOME/.local/bin/echowork"
 echo "Updating desktop application database..."

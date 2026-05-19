@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -176,7 +176,10 @@ class EcoWorkspaceApp(Gtk.Window):
         self.load_styles()
         
         self.workspace_dir = None
+        self.startup_cancelled = False
         self.init_workspace_directory()
+        if self.startup_cancelled:
+            return
         
         self.frontend_path = None
         self.backend_path = None
@@ -211,7 +214,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.workspace_dir = self.show_folder_picker_dialog()
         
         if not self.workspace_dir:
-            self.workspace_dir = os.path.expanduser("~")
+            self.startup_cancelled = True
             
     def show_folder_picker_dialog(self):
         dialog = Gtk.FileChooserDialog(
@@ -229,6 +232,17 @@ class EcoWorkspaceApp(Gtk.Window):
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             folder = dialog.get_filename()
+        elif response == Gtk.ResponseType.CANCEL:
+            message_dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Folder selection canceled",
+            )
+            message_dialog.format_secondary_text("Eco Workspace will close because no folder was selected.")
+            message_dialog.run()
+            message_dialog.destroy()
             
         dialog.destroy()
         return folder
@@ -686,4 +700,5 @@ class EcoWorkspaceApp(Gtk.Window):
 
 if __name__ == "__main__":
     app = EcoWorkspaceApp()
-    Gtk.main()
+    if not getattr(app, "startup_cancelled", False):
+        Gtk.main()

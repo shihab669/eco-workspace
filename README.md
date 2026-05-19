@@ -20,7 +20,7 @@ This project is intended for Linux desktops only. It depends on GTK 3, VTE, and 
 ## Requirements
 
 - Linux
-- Python 3
+- Python 3 installed on the system
 - GTK 3 bindings for Python (`gi` / PyGObject)
 - VTE 2.91 bindings
 - A shell such as `bash`
