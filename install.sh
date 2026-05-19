@@ -13,7 +13,11 @@ chmod +x "$HOME/.local/share/applications/eco_workspace.desktop"
 echo "Installing icon..."
 cp /home/shihab/Desktop/EchoWorkspace/assets/logo.png "$HOME/.local/share/icons/eco_workspace.png"
 echo "Installing echowork CLI command..."
-ln -sf /home/shihab/Desktop/EchoWorkspace/eco_workspace.py "$HOME/.local/bin/echowork"
+cat > "$HOME/.local/bin/echowork" <<'EOF'
+#!/usr/bin/env bash
+exec /home/shihab/Desktop/EchoWorkspace/eco_workspace.py "$@"
+EOF
+chmod +x "$HOME/.local/bin/echowork"
 echo "Updating desktop application database..."
 if command -v update-desktop-database &> /dev/null; then
     update-desktop-database "$HOME/.local/share/applications/"
