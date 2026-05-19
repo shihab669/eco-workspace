@@ -1,17 +1,59 @@
 #!/usr/bin/python3
-# eco_workspace.py - Native Linux terminal workspace manager with session recording.
+# eco_workspace.py - Native Linux terminal workspace manager with voice-to-text.
 
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
+gi.require_version('GdkPixbuf', '2.0')
 gi.require_version('Vte', '2.91')
 
-from gi.repository import Gtk, Gdk, Vte, GLib, Pango, Gio
+from gi.repository import Gtk, Gdk, GdkPixbuf, Vte, GLib, Pango, Gio
 import sys
 import os
 import subprocess
 import signal
 import time
+import queue
+import threading
+import sounddevice as sd
+import wave
+
+class WhisperLoader(threading.Thread):
+    """Loads the Whisper model in the background on startup."""
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.daemon = True
+        
+    def run(self):
+        try:
+            from faster_whisper import WhisperModel
+            # Load the base model locally from cache
+            model = WhisperModel('base', device='cpu', compute_type='int8')
+            GLib.idle_add(self.app.on_whisper_loaded, model)
+        except Exception as e:
+            print("Failed to load faster-whisper model:", e)
+            GLib.idle_add(self.app.on_whisper_loaded, None)
+
+class TranscribeWorker(threading.Thread):
+    """Transcribes recorded audio to text in the background."""
+    def __init__(self, app, wav_path):
+        super().__init__()
+        self.app = app
+        self.wav_path = wav_path
+        self.daemon = True
+        
+    def run(self):
+        transcribed_text = ""
+        try:
+            if self.app.whisper_model:
+                segments, info = self.app.whisper_model.transcribe(self.wav_path, beam_size=5)
+                # Concatenate segment texts
+                transcribed_text = "".join(segment.text for segment in segments)
+        except Exception as e:
+            print("Transcription error:", e)
+        finally:
+            GLib.idle_add(self.app.on_transcription_complete, transcribed_text)
 
 class TerminalPane:
     """Wraps a Vte.Terminal widget with a custom action header bar."""
@@ -27,11 +69,9 @@ class TerminalPane:
         self.header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.header.get_style_context().add_class("term-header")
         
-        # Terminal title label
-        self.title_label = Gtk.Label(label="Terminal")
-        self.title_label.get_style_context().add_class("term-title")
-        self.title_label.set_alignment(0.0, 0.5)
-        self.header.pack_start(self.title_label, True, True, 4)
+        # Spacer to push action buttons to the right (removing the double shihab@shihabdev title)
+        spacer = Gtk.Box()
+        self.header.pack_start(spacer, True, True, 0)
         
         # Split Horizontal button (glyph: ⎯)
         self.split_h_btn = Gtk.Button(label="⎯")
@@ -84,17 +124,17 @@ class TerminalPane:
         self.child_pid = self.spawn_shell()
         
     def setup_terminal_colors(self):
-        # Catppuccin Mocha Palette
+        # Pure Black Theme
         bg = Gdk.RGBA()
-        bg.parse("#1e1e2e")
+        bg.parse("#000000") # Dark black background
         fg = Gdk.RGBA()
-        fg.parse("#cdd6f4")
+        fg.parse("#e4e4e7") # Zinc 200 text
         
         palette_hex = [
-            "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af",
-            "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
-            "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af",
-            "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8"
+            "#27272a", "#f43f5e", "#22c55e", "#eab308",
+            "#3b82f6", "#d946ef", "#06b6d4", "#d4d4d8",
+            "#52525b", "#f43f5e", "#22c55e", "#eab308",
+            "#3b82f6", "#d946ef", "#06b6d4", "#fafafa"
         ]
         palette = []
         for hex_val in palette_hex:
@@ -124,8 +164,6 @@ class TerminalPane:
         self.app.close_terminal(self)
         
     def on_title_changed(self, terminal):
-        title = terminal.get_window_title()
-        self.title_label.set_text(title or "Terminal")
         self.app.refresh_sidebar()
         
     def on_focus_in(self, widget, event):
@@ -165,11 +203,11 @@ class Workspace:
 class EcoWorkspaceApp(Gtk.Window):
     """Main application window container and controller."""
     def __init__(self):
-        super().__init__(title="Eco Workspace")
+        super().__init__(title="echoWorkspace")
         self.set_default_size(1100, 750)
         
-        # Set Application Icon
-        icon_path = "/home/shihab/Desktop/EchoWorkspace/assets/icon.png"
+        # Set Application Icon using logo.png
+        icon_path = "/home/shihab/Desktop/EchoWorkspace/assets/logo.png"
         if os.path.exists(icon_path):
             self.set_icon_from_file(icon_path)
             
@@ -183,14 +221,19 @@ class EcoWorkspaceApp(Gtk.Window):
         self.workspaces = []
         self.active_workspace = None
         
-        # Recording Manager attributes
-        self.recording_process = None
+        # Audio / Whisper Transcription Attributes
+        self.whisper_model = None
+        self.audio_queue = queue.Queue()
+        self.audio_stream = None
         self.recording_start_time = 0
         self.recording_timer_id = 0
-        self.recording_file = None
+        self.temp_wav_path = "/tmp/eco_voice.wav"
         
         # Initialize UI Grid
         self.build_ui()
+        
+        # Load Whisper model in the background on startup
+        WhisperLoader(self).start()
         
         # Add initial workspace
         self.add_workspace("Workspace 1")
@@ -215,17 +258,33 @@ class EcoWorkspaceApp(Gtk.Window):
         self.top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.top_bar.get_style_context().add_class("top-bar")
         
-        self.title_label = Gtk.Label(label="Eco Workspace")
+        # Logo + text box
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        
+        logo_path = "/home/shihab/Desktop/EchoWorkspace/assets/logo.png"
+        if os.path.exists(logo_path):
+            try:
+                # Load scaled logo (28x28 size looks great in the nav bar)
+                logo_pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 28, 28, True)
+                logo_img = Gtk.Image.new_from_pixbuf(logo_pb)
+                title_box.pack_start(logo_img, False, False, 0)
+            except Exception as e:
+                print("Failed to load logo in top nav bar:", e)
+                
+        self.title_label = Gtk.Label(label="echoWorkspace")
         self.title_label.get_style_context().add_class("title-label")
-        self.top_bar.pack_start(self.title_label, False, False, 4)
+        title_box.pack_start(self.title_label, False, False, 0)
+        
+        self.top_bar.pack_start(title_box, False, False, 4)
         
         # Spacer
         spacer = Gtk.Box()
         self.top_bar.pack_start(spacer, True, True, 0)
         
-        # Record button in Top Bar (Timer label is inside button or next to it)
-        self.record_btn = Gtk.Button(label="Record")
+        # Voice Transcription Button in Top Bar (Mic icon indicator)
+        self.record_btn = Gtk.Button(label="Voice (Init...)")
         self.record_btn.get_style_context().add_class("record-btn")
+        self.record_btn.set_sensitive(False) # Wait until Whisper model loads
         self.record_btn.connect("clicked", self.toggle_recording)
         self.top_bar.pack_start(self.record_btn, False, False, 4)
         
@@ -233,13 +292,13 @@ class EcoWorkspaceApp(Gtk.Window):
         
         # 2. Main content area (Horizontal split between Sidebar and Workspace Notebook)
         self.content_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        self.content_paned.set_position(200) # Sidebar default width
+        self.content_paned.set_position(180) # Narrow sidebar
         self.main_box.pack_start(self.content_paned, True, True, 0)
         
         # 2a. Sidebar Panel
         self.sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.sidebar_box.get_style_context().add_class("sidebar")
-        self.sidebar_box.set_size_request(160, -1)
+        self.sidebar_box.set_size_request(150, -1)
         self.content_paned.pack1(self.sidebar_box, resize=False, shrink=False)
         
         # Sidebar "WORKSPACES" Section Header
@@ -268,6 +327,11 @@ class EcoWorkspaceApp(Gtk.Window):
         
         # Connect Keyboard Shortcuts
         self.connect("key-press-event", self.on_key_pressed)
+        
+    def on_whisper_loaded(self, model):
+        self.whisper_model = model
+        self.record_btn.set_sensitive(True)
+        self.record_btn.set_label("🎤 Voice")
         
     def add_workspace(self, name):
         ws = Workspace(name, self)
@@ -304,7 +368,6 @@ class EcoWorkspaceApp(Gtk.Window):
         
     def remove_workspace(self, ws):
         if len(self.workspaces) <= 1:
-            # Cannot remove the only workspace
             return
             
         # Find index in list
@@ -397,7 +460,6 @@ class EcoWorkspaceApp(Gtk.Window):
     def close_terminal(self, pane):
         ws = pane.workspace
         if len(ws.panes) <= 1:
-            # If it's the last terminal pane, we can either clear it or let it remain
             return
             
         current_widget = pane.widget
@@ -433,7 +495,6 @@ class EcoWorkspaceApp(Gtk.Window):
         
         # If active terminal was deleted, select sibling
         if ws.active_pane == pane:
-            # Find sibling in workspace panes
             sibling_pane = None
             for p in ws.panes:
                 if p.widget == sibling or sibling.is_ancestor(p.widget):
@@ -447,7 +508,6 @@ class EcoWorkspaceApp(Gtk.Window):
         self.refresh_sidebar()
         
     def refresh_sidebar(self):
-        # We can implement list updates or window title changes refresh here
         pass
         
     def on_key_pressed(self, widget, event):
@@ -489,109 +549,112 @@ class EcoWorkspaceApp(Gtk.Window):
         return False
         
     def toggle_recording(self, button):
-        if self.recording_process is not None:
+        if self.audio_stream is not None:
             self.stop_recording()
         else:
             self.start_recording()
             
     def start_recording(self):
-        # Determine Window screen geometry
-        x, y = self.get_position()
-        w, h = self.get_size()
+        # Reset audio queue
+        self.audio_queue = queue.Queue()
         
-        # Keep window bounds even numbers as libx264 x11grab complains if odd width/height
-        if w % 2 != 0: w -= 1
-        if h % 2 != 0: h -= 1
-        
-        record_dir = "/home/shihab/Desktop/EchoWorkspace/recordings"
-        os.makedirs(record_dir, exist_ok=True)
-        
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        self.recording_file = os.path.join(record_dir, f"EcoWorkspace_{timestamp}.mp4")
-        
-        display = os.environ.get("DISPLAY", ":1")
-        
-        # ffmpeg capture command
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "x11grab",
-            "-video_size", f"{w}x{h}",
-            "-i", f"{display}+{x},{y}",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-pix_fmt", "yuv420p",
-            self.recording_file
-        ]
-        
+        # Audio recording callback
+        def audio_callback(indata, frames, time_info, status):
+            self.audio_queue.put(bytes(indata))
+            
         try:
-            # Launch in background
-            self.recording_process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+            self.audio_stream = sd.RawInputStream(
+                samplerate=16000,
+                channels=1,
+                dtype='int16',
+                callback=audio_callback
             )
+            self.audio_stream.start()
             self.recording_start_time = time.time()
             
             # Start timer update
             self.record_btn.get_style_context().add_class("recording")
-            self.record_btn.set_label("● 00:00")
+            self.record_btn.set_label("● Listening (00:00)")
             self.recording_timer_id = GLib.timeout_add_seconds(1, self.update_record_timer)
             
         except Exception as e:
-            print("Failed to start recording:", e)
-            self.recording_process = None
+            print("Failed to start voice recording:", e)
+            self.audio_stream = None
             
     def stop_recording(self):
-        if self.recording_process is None:
+        if self.audio_stream is None:
             return
             
         try:
-            # Gracefully stop ffmpeg by sending SIGINT
-            self.recording_process.send_signal(signal.SIGINT)
-            self.recording_process.wait(timeout=3)
+            self.audio_stream.stop()
+            self.audio_stream.close()
         except Exception as e:
-            print("Error stopping ffmpeg:", e)
-            try:
-                self.recording_process.kill()
-            except:
-                pass
-                
+            print("Error stopping audio stream:", e)
+            
+        self.audio_stream = None
+        
         # Clean timer
         if self.recording_timer_id:
             GLib.source_remove(self.recording_timer_id)
             self.recording_timer_id = 0
             
         self.record_btn.get_style_context().remove_class("recording")
-        self.record_btn.set_label("Record")
-        self.recording_process = None
+        self.record_btn.set_label("Transcribing...")
+        self.record_btn.set_sensitive(False)
         
-        # Show native Dialog with saved path
-        self.show_info_dialog("Recording Complete", f"Your screen recording has been saved to:\n\n{self.recording_file}")
-        
+        # Save WAV chunks in the background
+        chunks = []
+        while not self.audio_queue.empty():
+            chunks.append(self.audio_queue.get())
+            
+        if chunks:
+            audio_bytes = b"".join(chunks)
+            try:
+                with wave.open(self.temp_wav_path, 'wb') as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(16000)
+                    wf.writeframes(audio_bytes)
+                
+                # Start background transcription worker
+                TranscribeWorker(self, self.temp_wav_path).start()
+            except Exception as e:
+                print("Failed to write temporary wav file:", e)
+                self.on_transcription_complete("")
+        else:
+            self.on_transcription_complete("")
+            
     def update_record_timer(self):
-        if self.recording_process is None:
+        if self.audio_stream is None:
             return False
         elapsed = int(time.time() - self.recording_start_time)
         mins = elapsed // 60
         secs = elapsed % 60
-        self.record_btn.set_label(f"● {mins:02d}:{secs:02d}")
+        self.record_btn.set_label(f"● Listening ({mins:02d}:{secs:02d})")
         return True
         
-    def show_info_dialog(self, title, message):
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            flags=0,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=title
-        )
-        dialog.format_secondary_text(message)
-        dialog.run()
-        dialog.destroy()
+    def on_transcription_complete(self, text):
+        # Restore button state
+        self.record_btn.set_sensitive(True)
+        self.record_btn.set_label("🎤 Voice")
         
+        if text and text.strip():
+            # Clean and feed the text directly into the active VTE terminal child process
+            cleaned_text = text.strip()
+            print(f"Transcribed voice input: '{cleaned_text}'")
+            
+            if self.active_workspace and self.active_workspace.active_pane:
+                pane = self.active_workspace.active_pane
+                # Feed it directly. Note: Vte expects bytes input
+                pane.terminal.feed_child(cleaned_text.encode('utf-8'))
+                
     def on_destroy(self, widget):
-        self.stop_recording()
+        if self.audio_stream is not None:
+            try:
+                self.audio_stream.stop()
+                self.audio_stream.close()
+            except:
+                pass
         Gtk.main_quit()
 
 if __name__ == "__main__":

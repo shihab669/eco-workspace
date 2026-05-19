@@ -22,7 +22,7 @@ chmod +x "$HOME/.local/share/applications/eco_workspace.desktop"
 
 # 4. Copy the icon
 echo "Installing icon..."
-cp /home/shihab/Desktop/EchoWorkspace/assets/icon.png "$HOME/.local/share/icons/eco_workspace.png"
+cp /home/shihab/Desktop/EchoWorkspace/assets/logo.png "$HOME/.local/share/icons/eco_workspace.png"
 
 # 5. Update desktop database
 echo "Updating desktop application database..."
