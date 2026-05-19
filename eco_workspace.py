@@ -272,10 +272,10 @@ class EcoWorkspaceApp(Gtk.Window):
         spacer = Gtk.Box()
         self.top_bar.pack_start(spacer, True, True, 0)
         
-        # Navbar tool execution buttons (text-only)
+        # Navbar tool execution buttons (text-only with enter icon)
         tools = ["opencode", "codex", "claude", "openclaude", "codebuff", "echoxcode"]
         for tool in tools:
-            btn = Gtk.Button(label=tool)
+            btn = Gtk.Button(label=f"{tool} ↵")
             btn.get_style_context().add_class("tool-btn")
             btn.connect("clicked", self.on_tool_btn_clicked, tool)
             self.top_bar.pack_start(btn, False, False, 4)
