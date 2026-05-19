@@ -10,6 +10,8 @@ from gi.repository import Gtk, Gdk, GdkPixbuf, Vte, GLib, Pango, Gio
 import sys
 import os
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 class TerminalPane:
     def __init__(self, workspace, app):
         self.workspace = workspace
@@ -212,7 +214,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.set_default_size(1100, 750)
         self.set_wmclass("eco-workspace", "EcoWorkspace")
         
-        icon_path = "/home/shihab/Desktop/EchoWorkspace/logo.png"
+        icon_path = os.path.join(SCRIPT_DIR, "logo.png")
         if os.path.exists(icon_path):
             self.set_icon_from_file(icon_path)
             Gtk.Window.set_default_icon_from_file(icon_path)
@@ -243,7 +245,7 @@ class EcoWorkspaceApp(Gtk.Window):
         
     def load_styles(self):
         style_provider = Gtk.CssProvider()
-        css_path = "/home/shihab/Desktop/EchoWorkspace/style.css"
+        css_path = os.path.join(SCRIPT_DIR, "style.css")
         if os.path.exists(css_path):
             style_provider.load_from_path(css_path)
             Gtk.StyleContext.add_provider_for_screen(
@@ -379,7 +381,7 @@ class EcoWorkspaceApp(Gtk.Window):
         
         title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         
-        logo_path = "/home/shihab/Desktop/EchoWorkspace/assets/logo.png"
+        logo_path = os.path.join(SCRIPT_DIR, "logo.png")
         if os.path.exists(logo_path):
             try:
                 logo_pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 28, 28, True)
