@@ -210,10 +210,12 @@ class EcoWorkspaceApp(Gtk.Window):
     def __init__(self):
         super().__init__(title="echoWorkspace")
         self.set_default_size(1100, 750)
+        self.set_wmclass("eco-workspace", "EcoWorkspace")
         
-        icon_path = "/home/shihab/Desktop/EchoWorkspace/assets/logo.png"
+        icon_path = "/home/shihab/Desktop/EchoWorkspace/logo.png"
         if os.path.exists(icon_path):
             self.set_icon_from_file(icon_path)
+            Gtk.Window.set_default_icon_from_file(icon_path)
             
         self.get_style_context().add_class("main-window")
         self.connect("destroy", self.on_destroy)
@@ -745,6 +747,8 @@ class EcoWorkspaceApp(Gtk.Window):
         Gtk.main_quit()
 
 if __name__ == "__main__":
+    GLib.set_prgname("eco-workspace")
+    GLib.set_application_name("Eco Workspace")
     app = EcoWorkspaceApp()
     if not getattr(app, "startup_cancelled", False):
         Gtk.main()
