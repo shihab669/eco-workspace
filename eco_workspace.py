@@ -176,6 +176,7 @@ class EcoWorkspaceApp(Gtk.Window):
             
         self.get_style_context().add_class("main-window")
         self.connect("destroy", self.on_destroy)
+        self.fullscreen()
         
         # Load CSS Styling
         self.load_styles()
