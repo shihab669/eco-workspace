@@ -325,7 +325,7 @@ class EcoWorkspaceApp(Gtk.Window):
             
             # If the current terminal is already executing a tool or has user input, automatically split it
             if pane.is_busy:
-                pane = self.split_terminal(pane, Gtk.Orientation.VERTICAL)
+                pane = self.split_terminal(pane, Gtk.Orientation.HORIZONTAL)
                 
             # Feed the command and append a newline to auto-execute it inside active shell/tool
             cmd = f"{tool_command}\n"
