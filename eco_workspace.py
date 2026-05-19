@@ -15,6 +15,7 @@ class TerminalPane:
         self.workspace = workspace
         self.app = app
         self.is_busy = False
+        self.running_tool = None
         
         self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.widget.get_style_context().add_class("term-box")
@@ -113,6 +114,7 @@ class TerminalPane:
     def on_commit(self, terminal, text, size):
         self.is_busy = True
         self.app.update_server_buttons()
+        self.app.refresh_sidebar()
         
     def on_focus_in(self, widget, event):
         self.app.set_active_terminal(self)
@@ -142,6 +144,20 @@ class Workspace:
         self.root_box.pack_start(init_pane.widget, True, True, 0)
         
         self.root_widget = init_pane.widget
+
+    def get_active_tools(self):
+        tools = []
+        for p in self.panes:
+            if p.is_busy:
+                if p.running_tool:
+                    tools.append(p.running_tool)
+                else:
+                    title = p.terminal.get_window_title()
+                    if title and title not in ["bash", "sh", "zsh", "fish", "exit"]:
+                        tools.append(title)
+                    else:
+                        tools.append("shell")
+        return tools
 
 
 class EcoWorkspaceApp(Gtk.Window):
@@ -339,12 +355,12 @@ class EcoWorkspaceApp(Gtk.Window):
         self.main_box.pack_start(self.top_bar, False, False, 0)
         
         self.content_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        self.content_paned.set_position(240)
+        self.content_paned.set_position(280)
         self.main_box.pack_start(self.content_paned, True, True, 0)
         
         self.sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.sidebar_box.get_style_context().add_class("sidebar")
-        self.sidebar_box.set_size_request(220, -1)
+        self.sidebar_box.set_size_request(260, -1)
         self.content_paned.pack1(self.sidebar_box, resize=False, shrink=False)
         
         workspaces_header = Gtk.Label(label="Workspaces")
@@ -378,14 +394,18 @@ class EcoWorkspaceApp(Gtk.Window):
                 
             if button == self.frontend_btn:
                 cmd = f"cd \"{self.frontend_path}\" && npm run dev\n"
+                pane.running_tool = "frontend"
             elif button == self.backend_btn:
                 cmd = f"cd \"{self.backend_path}\" && npm start\n"
+                pane.running_tool = "backend"
             else:
                 cmd = f"{tool_command}\n"
+                pane.running_tool = tool_command
                 
             pane.terminal.feed_child(cmd.encode('utf-8'))
             pane.is_busy = True
             self.update_server_buttons()
+            self.refresh_sidebar()
             
     def update_server_buttons(self):
         if not self.active_workspace:
@@ -415,6 +435,7 @@ class EcoWorkspaceApp(Gtk.Window):
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row_label = Gtk.Label(label=name)
         row_label.set_alignment(0.0, 0.5)
+        row_label.get_style_context().add_class("workspace-label")
         row_box.pack_start(row_label, True, True, 0)
         
         ws_close_btn = Gtk.Button(label="✕")
@@ -427,6 +448,7 @@ class EcoWorkspaceApp(Gtk.Window):
         row.get_style_context().add_class("workspace-row")
         row.add(row_box)
         row.ws = ws
+        ws.sidebar_label = row_label
         
         self.workspace_listbox.add(row)
         self.show_all()
@@ -434,6 +456,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.workspace_listbox.select_row(row)
         ws.active_pane.terminal.grab_focus()
         self.update_server_buttons()
+        self.refresh_sidebar()
         
     def remove_workspace(self, ws):
         if len(self.workspaces) <= 1:
@@ -456,6 +479,7 @@ class EcoWorkspaceApp(Gtk.Window):
         row_to_select = self.workspace_listbox.get_children()[new_selection_idx]
         self.workspace_listbox.select_row(row_to_select)
         self.update_server_buttons()
+        self.refresh_sidebar()
         
     def on_workspace_selected(self, listbox, row):
         if row is None:
@@ -474,6 +498,7 @@ class EcoWorkspaceApp(Gtk.Window):
             ws.active_pane.terminal.grab_focus()
             
         self.update_server_buttons()
+        self.refresh_sidebar()
             
     def set_active_terminal(self, pane):
         if self.active_workspace:
@@ -570,7 +595,21 @@ class EcoWorkspaceApp(Gtk.Window):
         self.update_server_buttons()
         
     def refresh_sidebar(self):
-        pass
+        for ws in self.workspaces:
+            if hasattr(ws, "sidebar_label"):
+                tools = ws.get_active_tools()
+                if tools:
+                    cleaned_tools = []
+                    for t in tools:
+                        if t == "npm run dev":
+                            cleaned_tools.append("frontend")
+                        elif t == "npm start":
+                            cleaned_tools.append("backend")
+                        else:
+                            cleaned_tools.append(t)
+                    ws.sidebar_label.set_text(" • ".join(cleaned_tools))
+                else:
+                    ws.sidebar_label.set_text(ws.name)
         
     def on_key_pressed(self, widget, event):
         state = event.state & Gdk.ModifierType.CONTROL_MASK and event.state & Gdk.ModifierType.SHIFT_MASK

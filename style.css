@@ -1,12 +1,8 @@
-/* style.css - Custom Dark Black styling for echoWorkspace */
-
-/* Application Main Window Background */
 window.main-window {
     background-color: #000000;
     color: #f4f4f5;
 }
 
-/* Top Navigation Bar */
 .top-bar {
     background-color: #09090b;
     border-bottom: 1px solid #1c1c1f;
@@ -17,11 +13,10 @@ window.main-window {
     font-family: "JetBrains Mono", "Outfit", "Inter", "Ubuntu Mono", monospace;
     font-size: 14pt;
     font-weight: 800;
-    color: #ffffff; /* Bright White */
+    color: #ffffff;
     letter-spacing: -0.5px;
 }
 
-/* Top Bar Tool Execution Buttons */
 .tool-btn {
     font-family: "JetBrains Mono", "Ubuntu Mono", monospace;
     font-weight: bold;
@@ -40,14 +35,12 @@ window.main-window {
     border-color: #3f3f46;
 }
 
-/* Sidebar Panel */
 .sidebar {
     background-color: #09090b;
     border-right: 1px solid #1c1c1f;
     padding: 12px 8px;
 }
 
-/* Sidebar Headings */
 .sidebar-section-title {
     font-family: "Outfit", "Inter", sans-serif;
     font-size: 8.5pt;
@@ -57,7 +50,6 @@ window.main-window {
     margin: 8px 4px 6px 4px;
 }
 
-/* Workspace List Rows */
 .workspace-row {
     padding: 8px 12px;
     border-radius: 6px;
@@ -73,12 +65,17 @@ window.main-window {
 
 .workspace-row.active {
     background-color: #18181b;
-    color: #ffffff; /* Monochromatic clean white */
+    color: #ffffff;
     border: 1px solid #27272a;
     font-weight: bold;
 }
 
-/* Add Workspace Button */
+.workspace-label {
+    font-family: "Outfit", "Inter", "JetBrains Mono", sans-serif;
+    font-size: 9.5pt;
+    color: inherit;
+}
+
 .add-workspace-btn {
     font-family: "Outfit", "Inter", sans-serif;
     font-weight: bold;
@@ -98,7 +95,6 @@ window.main-window {
     border-color: #3f3f46;
 }
 
-/* Terminal Panes Grid splits */
 paned > separator {
     background-color: #1c1c1f;
 }
@@ -107,22 +103,19 @@ paned > separator:hover {
     background-color: #3f3f46;
 }
 
-/* Terminal Container Box */
 .term-box {
     background-color: #000000;
-    border: 1.5px solid #1c1c1f; /* Very dim gray border */
+    border: 1.5px solid #1c1c1f;
     border-radius: 6px;
     margin: 2px;
     transition: border-color 0.15s ease-in-out;
 }
 
-/* Active Focused Terminal Dim Gray Border */
 .term-box.focused {
-    border-color: #3f3f46; /* Dim zinc gray border for active focus */
+    border-color: #3f3f46;
     box-shadow: 0 0 4px rgba(63, 63, 70, 0.2);
 }
 
-/* Terminal Header */
 .term-header {
     background-color: #09090b;
     border-bottom: 1px solid #1c1c1f;
@@ -131,7 +124,6 @@ paned > separator:hover {
     border-top-right-radius: 4px;
 }
 
-/* Header Action Buttons */
 .term-btn {
     background: none;
     border: none;
@@ -152,14 +144,12 @@ paned > separator:hover {
     color: #ffffff;
 }
 
-/* VTE Terminal widget styling */
 vte-terminal {
     background-color: #000000;
     color: #f4f4f5;
     padding: 10px;
 }
 
-/* Scrollbar overrides */
 scrollbar {
     background: transparent;
     -GtkScrollbar-has-backward-stepper: 0;
