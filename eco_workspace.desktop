@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Eco Workspace
 Comment=Native Linux terminal manager with custom splits and recording
-Exec=/home/shihab/Desktop/EchoWorkspace/eco_workspace.py
+Exec=/home/shihab/Desktop/EchoWorkspace/eco_workspace.py %f
 Icon=eco_workspace
 Terminal=false
 Type=Application

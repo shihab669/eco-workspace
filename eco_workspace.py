@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# eco_workspace.py - Native Linux terminal workspace manager with voice-to-text.
+# eco_workspace.py - Native Linux terminal workspace manager.
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -10,50 +10,6 @@ gi.require_version('Vte', '2.91')
 from gi.repository import Gtk, Gdk, GdkPixbuf, Vte, GLib, Pango, Gio
 import sys
 import os
-import subprocess
-import signal
-import time
-import queue
-import threading
-import sounddevice as sd
-import wave
-
-class WhisperLoader(threading.Thread):
-    """Loads the Whisper model in the background on startup."""
-    def __init__(self, app):
-        super().__init__()
-        self.app = app
-        self.daemon = True
-        
-    def run(self):
-        try:
-            from faster_whisper import WhisperModel
-            # Load the base model locally from cache
-            model = WhisperModel('base', device='cpu', compute_type='int8')
-            GLib.idle_add(self.app.on_whisper_loaded, model)
-        except Exception as e:
-            print("Failed to load faster-whisper model:", e)
-            GLib.idle_add(self.app.on_whisper_loaded, None)
-
-class TranscribeWorker(threading.Thread):
-    """Transcribes recorded audio to text in the background."""
-    def __init__(self, app, wav_path):
-        super().__init__()
-        self.app = app
-        self.wav_path = wav_path
-        self.daemon = True
-        
-    def run(self):
-        transcribed_text = ""
-        try:
-            if self.app.whisper_model:
-                segments, info = self.app.whisper_model.transcribe(self.wav_path, beam_size=5)
-                # Concatenate segment texts
-                transcribed_text = "".join(segment.text for segment in segments)
-        except Exception as e:
-            print("Transcription error:", e)
-        finally:
-            GLib.idle_add(self.app.on_transcription_complete, transcribed_text)
 
 class TerminalPane:
     """Wraps a Vte.Terminal widget with a custom action header bar."""
@@ -69,7 +25,7 @@ class TerminalPane:
         self.header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.header.get_style_context().add_class("term-header")
         
-        # Spacer to push action buttons to the right (removing the double shihab@shihabdev title)
+        # Spacer to push action buttons to the right
         spacer = Gtk.Box()
         self.header.pack_start(spacer, True, True, 0)
         
@@ -120,7 +76,7 @@ class TerminalPane:
         
         self.widget.pack_start(self.terminal, True, True, 0)
         
-        # Start Shell Session
+        # Start Shell Session inside active workspace directory
         self.child_pid = self.spawn_shell()
         
     def setup_terminal_colors(self):
@@ -146,9 +102,11 @@ class TerminalPane:
         
     def spawn_shell(self):
         shell = os.environ.get("SHELL", "/bin/bash")
+        cwd = self.app.workspace_dir if self.app.workspace_dir else None
+        
         success, pid = self.terminal.spawn_sync(
             Vte.PtyFlags.DEFAULT,
-            None,
+            cwd, # Start shell directly in selected folder path
             [shell],
             None,
             GLib.SpawnFlags.DEFAULT,
@@ -157,7 +115,7 @@ class TerminalPane:
             None
         )
         if not success:
-            print(f"Failed to spawn shell: {shell}")
+            print(f"Failed to spawn shell in {cwd}: {shell}")
         return pid
         
     def on_child_exited(self, terminal, status):
@@ -217,25 +175,18 @@ class EcoWorkspaceApp(Gtk.Window):
         # Load CSS Styling
         self.load_styles()
         
+        # Parse or Pick Workspace Directory
+        self.workspace_dir = None
+        self.init_workspace_directory()
+        
         # Setup workspaces data structure
         self.workspaces = []
         self.active_workspace = None
         
-        # Audio / Whisper Transcription Attributes
-        self.whisper_model = None
-        self.audio_queue = queue.Queue()
-        self.audio_stream = None
-        self.recording_start_time = 0
-        self.recording_timer_id = 0
-        self.temp_wav_path = "/tmp/eco_voice.wav"
-        
         # Initialize UI Grid
         self.build_ui()
         
-        # Load Whisper model in the background on startup
-        WhisperLoader(self).start()
-        
-        # Add initial workspace
+        # Add initial workspace inside selected folder
         self.add_workspace("Workspace 1")
         
     def load_styles(self):
@@ -249,6 +200,41 @@ class EcoWorkspaceApp(Gtk.Window):
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
             
+    def init_workspace_directory(self):
+        # 1. Check if folder was passed as command line argument (drag-and-drop / terminal launcher)
+        if len(sys.argv) > 1:
+            arg_path = sys.argv[1]
+            if os.path.isdir(arg_path):
+                self.workspace_dir = os.path.abspath(arg_path)
+                return
+                
+        # 2. Show native GTK folder selection dialog
+        self.workspace_dir = self.show_folder_picker_dialog()
+        
+        # 3. Default to user home directory if dialog was canceled
+        if not self.workspace_dir:
+            self.workspace_dir = os.path.expanduser("~")
+            
+    def show_folder_picker_dialog(self):
+        dialog = Gtk.FileChooserDialog(
+            title="Open Folder - echoWorkspace",
+            parent=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER
+        )
+        dialog.add_buttons(
+            "Cancel", Gtk.ResponseType.CANCEL,
+            "Open", Gtk.ResponseType.OK
+        )
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        
+        folder = None
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            folder = dialog.get_filename()
+            
+        dialog.destroy()
+        return folder
+
     def build_ui(self):
         # Main vertical container
         self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -264,7 +250,6 @@ class EcoWorkspaceApp(Gtk.Window):
         logo_path = "/home/shihab/Desktop/EchoWorkspace/assets/logo.png"
         if os.path.exists(logo_path):
             try:
-                # Load scaled logo (28x28 size looks great in the nav bar)
                 logo_pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 28, 28, True)
                 logo_img = Gtk.Image.new_from_pixbuf(logo_pb)
                 title_box.pack_start(logo_img, False, False, 0)
@@ -281,13 +266,14 @@ class EcoWorkspaceApp(Gtk.Window):
         spacer = Gtk.Box()
         self.top_bar.pack_start(spacer, True, True, 0)
         
-        # Voice Transcription Button in Top Bar (Mic icon indicator)
-        self.record_btn = Gtk.Button(label="Voice (Init...)")
-        self.record_btn.get_style_context().add_class("record-btn")
-        self.record_btn.set_sensitive(False) # Wait until Whisper model loads
-        self.record_btn.connect("clicked", self.toggle_recording)
-        self.top_bar.pack_start(self.record_btn, False, False, 4)
-        
+        # Navbar tool execution buttons (text-only)
+        tools = ["opencode", "codex", "claude", "openclaude", "codebuff", "echoxcode"]
+        for tool in tools:
+            btn = Gtk.Button(label=tool)
+            btn.get_style_context().add_class("tool-btn")
+            btn.connect("clicked", self.on_tool_btn_clicked, tool)
+            self.top_bar.pack_start(btn, False, False, 4)
+            
         self.main_box.pack_start(self.top_bar, False, False, 0)
         
         # 2. Main content area (Horizontal split between Sidebar and Workspace Notebook)
@@ -328,11 +314,13 @@ class EcoWorkspaceApp(Gtk.Window):
         # Connect Keyboard Shortcuts
         self.connect("key-press-event", self.on_key_pressed)
         
-    def on_whisper_loaded(self, model):
-        self.whisper_model = model
-        self.record_btn.set_sensitive(True)
-        self.record_btn.set_label("🎤 Voice")
-        
+    def on_tool_btn_clicked(self, button, tool_command):
+        if self.active_workspace and self.active_workspace.active_pane:
+            pane = self.active_workspace.active_pane
+            # Feed the command and append a newline to auto-execute it inside active shell/tool
+            cmd = f"{tool_command}\n"
+            pane.terminal.feed_child(cmd.encode('utf-8'))
+            
     def add_workspace(self, name):
         ws = Workspace(name, self)
         self.workspaces.append(ws)
@@ -548,113 +536,7 @@ class EcoWorkspaceApp(Gtk.Window):
             
         return False
         
-    def toggle_recording(self, button):
-        if self.audio_stream is not None:
-            self.stop_recording()
-        else:
-            self.start_recording()
-            
-    def start_recording(self):
-        # Reset audio queue
-        self.audio_queue = queue.Queue()
-        
-        # Audio recording callback
-        def audio_callback(indata, frames, time_info, status):
-            self.audio_queue.put(bytes(indata))
-            
-        try:
-            self.audio_stream = sd.RawInputStream(
-                samplerate=16000,
-                channels=1,
-                dtype='int16',
-                callback=audio_callback
-            )
-            self.audio_stream.start()
-            self.recording_start_time = time.time()
-            
-            # Start timer update
-            self.record_btn.get_style_context().add_class("recording")
-            self.record_btn.set_label("● Listening (00:00)")
-            self.recording_timer_id = GLib.timeout_add_seconds(1, self.update_record_timer)
-            
-        except Exception as e:
-            print("Failed to start voice recording:", e)
-            self.audio_stream = None
-            
-    def stop_recording(self):
-        if self.audio_stream is None:
-            return
-            
-        try:
-            self.audio_stream.stop()
-            self.audio_stream.close()
-        except Exception as e:
-            print("Error stopping audio stream:", e)
-            
-        self.audio_stream = None
-        
-        # Clean timer
-        if self.recording_timer_id:
-            GLib.source_remove(self.recording_timer_id)
-            self.recording_timer_id = 0
-            
-        self.record_btn.get_style_context().remove_class("recording")
-        self.record_btn.set_label("Transcribing...")
-        self.record_btn.set_sensitive(False)
-        
-        # Save WAV chunks in the background
-        chunks = []
-        while not self.audio_queue.empty():
-            chunks.append(self.audio_queue.get())
-            
-        if chunks:
-            audio_bytes = b"".join(chunks)
-            try:
-                with wave.open(self.temp_wav_path, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(16000)
-                    wf.writeframes(audio_bytes)
-                
-                # Start background transcription worker
-                TranscribeWorker(self, self.temp_wav_path).start()
-            except Exception as e:
-                print("Failed to write temporary wav file:", e)
-                self.on_transcription_complete("")
-        else:
-            self.on_transcription_complete("")
-            
-    def update_record_timer(self):
-        if self.audio_stream is None:
-            return False
-        elapsed = int(time.time() - self.recording_start_time)
-        mins = elapsed // 60
-        secs = elapsed % 60
-        self.record_btn.set_label(f"● Listening ({mins:02d}:{secs:02d})")
-        return True
-        
-    def on_transcription_complete(self, text):
-        # Restore button state
-        self.record_btn.set_sensitive(True)
-        self.record_btn.set_label("🎤 Voice")
-        
-        if text and text.strip():
-            # Clean and feed the text directly into the active VTE terminal child process
-            cleaned_text = text.strip()
-            print(f"Transcribed voice input: '{cleaned_text}'")
-            
-            if self.active_workspace and self.active_workspace.active_pane:
-                pane = self.active_workspace.active_pane
-                # Feed it directly. Note: Vte expects bytes input
-                pane.terminal.feed_child(cleaned_text.encode('utf-8'))
-                
     def on_destroy(self, widget):
-        if self.audio_stream is not None:
-            try:
-                self.audio_stream.stop()
-                self.audio_stream.close()
-            except:
-                pass
         Gtk.main_quit()
 
 if __name__ == "__main__":
