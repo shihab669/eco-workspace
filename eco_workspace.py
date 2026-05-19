@@ -112,6 +112,7 @@ class TerminalPane:
 
     def on_commit(self, terminal, text, size):
         self.is_busy = True
+        self.app.update_server_buttons()
         
     def on_focus_in(self, widget, event):
         self.app.set_active_terminal(self)
@@ -167,6 +168,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.build_ui()
         
         self.add_workspace("Workspace 1")
+        self.update_server_buttons()
         
     def load_styles(self):
         style_provider = Gtk.CssProvider()
@@ -238,6 +240,16 @@ class EcoWorkspaceApp(Gtk.Window):
         spacer = Gtk.Box()
         self.top_bar.pack_start(spacer, True, True, 0)
         
+        self.frontend_btn = Gtk.Button(label="🖧 frontend start ↵")
+        self.frontend_btn.get_style_context().add_class("tool-btn")
+        self.frontend_btn.connect("clicked", self.on_tool_btn_clicked, "npm run dev")
+        self.top_bar.pack_start(self.frontend_btn, False, False, 4)
+
+        self.backend_btn = Gtk.Button(label="🖧 backend start ↵")
+        self.backend_btn.get_style_context().add_class("tool-btn")
+        self.backend_btn.connect("clicked", self.on_tool_btn_clicked, "npm start")
+        self.top_bar.pack_start(self.backend_btn, False, False, 4)
+        
         tools = ["opencode", "codex", "claude", "openclaude", "codebuff", "echoxcode"]
         for tool in tools:
             btn = Gtk.Button(label=f"{tool} ↵")
@@ -288,7 +300,23 @@ class EcoWorkspaceApp(Gtk.Window):
             cmd = f"{tool_command}\n"
             pane.terminal.feed_child(cmd.encode('utf-8'))
             pane.is_busy = True
+            self.update_server_buttons()
             
+    def update_server_buttons(self):
+        if not self.active_workspace:
+            self.frontend_btn.set_sensitive(False)
+            self.frontend_btn.set_visible(False)
+            self.backend_btn.set_sensitive(False)
+            self.backend_btn.set_visible(False)
+            return
+            
+        any_busy = any(pane.is_busy for pane in self.active_workspace.panes)
+        is_free = not any_busy
+        self.frontend_btn.set_sensitive(is_free)
+        self.frontend_btn.set_visible(is_free)
+        self.backend_btn.set_sensitive(is_free)
+        self.backend_btn.set_visible(is_free)
+
     def add_workspace(self, name):
         ws = Workspace(name, self)
         self.workspaces.append(ws)
@@ -317,6 +345,7 @@ class EcoWorkspaceApp(Gtk.Window):
         
         self.workspace_listbox.select_row(row)
         ws.active_pane.terminal.grab_focus()
+        self.update_server_buttons()
         
     def remove_workspace(self, ws):
         if len(self.workspaces) <= 1:
@@ -338,6 +367,7 @@ class EcoWorkspaceApp(Gtk.Window):
         new_selection_idx = max(0, ws_idx - 1)
         row_to_select = self.workspace_listbox.get_children()[new_selection_idx]
         self.workspace_listbox.select_row(row_to_select)
+        self.update_server_buttons()
         
     def on_workspace_selected(self, listbox, row):
         if row is None:
@@ -354,6 +384,8 @@ class EcoWorkspaceApp(Gtk.Window):
         
         if ws.active_pane:
             ws.active_pane.terminal.grab_focus()
+            
+        self.update_server_buttons()
             
     def set_active_terminal(self, pane):
         if self.active_workspace:
@@ -398,6 +430,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.update_terminal_focus_borders()
         new_pane.terminal.grab_focus()
         self.refresh_sidebar()
+        self.update_server_buttons()
         
         return new_pane
         
@@ -446,6 +479,7 @@ class EcoWorkspaceApp(Gtk.Window):
         self.update_terminal_focus_borders()
         ws.active_pane.terminal.grab_focus()
         self.refresh_sidebar()
+        self.update_server_buttons()
         
     def refresh_sidebar(self):
         pass
